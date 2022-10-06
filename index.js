@@ -41,7 +41,7 @@ const PROCESS_STATUS = {
 };
 
 const secretKey =
-  process.env.SECRETKEY || "6Ldb9_gfAAAAAHlu5NBDdueW-JHSaK7rsGx8XtlE";
+  process.env.SECRETKEY || "6LcfPlMiAAAAAFVQeCMZeXxLND37ABssYZryKrbL";
 
 const API_URL_VOUCHER =
   process.env.API_VOUCHER ||
@@ -74,7 +74,7 @@ async function getOrdersPendingStatus() {
 }
 
 async function createVoucher(params) {
-  console.log(params, API_URL_VOUCHER);
+  // console.log(params, API_URL_VOUCHER);
   return await axios.post(API_URL_VOUCHER, {
     ...params,
   });
@@ -126,12 +126,12 @@ async function paymentSuccess(orderPending) {
 
 // tạo kết nối giữa client và server
 io.on("connection", function (socket) {
-  console.log("connected", socket.id);
+  // console.log("connected", socket.id);
 });
 
 cron.schedule("*/20 * * * * *", async () => {
   const ordersPending = await getOrdersPendingStatus();
-  console.log(ordersPending);
+  // console.log(ordersPending);
   if (ordersPending && ordersPending.length) {
     for (const orderPending of ordersPending) {
       const { id } = orderPending;
@@ -156,6 +156,7 @@ app.post("/captcha", async (req, res) => {
   const { data } = body;
 
   if (!data.success || data.score < 0.4) {
+    console.log('data', data)
     return res.status(200).send({
       success: false,
       message: "You might be a robot, sorry!.",
