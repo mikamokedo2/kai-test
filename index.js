@@ -5,16 +5,15 @@ const mongoose = require("mongoose");
 const axios = require("axios");
 const moment = require("moment");
 const { ethers, Wallet } = require("ethers");
-
+var SHA256 = require("crypto-js/sha256");
+const MD5 = require("crypto-js/md5");
 const ordersModel = require("./models/orders.model");
 const supporstModel = require("./models/support.model");
 
 const {
   contract: { address, abi },
 } = require("./const");
-
 const app = express();
-
 const http = require("http");
 const server = http.createServer(app);
 
@@ -47,10 +46,6 @@ const API_URL_VOUCHER =
   process.env.API_VOUCHER ||
   "https://api-admin.shopdi.io/api/v1/bcvouchers/generator";
 
-const API_URL_SIGNATURE =
-  process.env.API_URL_SIGNATURE ||
-  "https://api-admin.shopdi.io/api/v1/bcvouchers/signature";
-
 const port = process.env.PORT || 8000;
 const privateKeyVoucher =
   process.env.PRIVATE_KEY_VOUCHER ||
@@ -58,7 +53,6 @@ const privateKeyVoucher =
 const publicKeyVoucher =
   process.env.PUBLICKEY_KEY_VOUCHER ||
   "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCEo7kAV5LiC2ad/5WY0ooxLey2LSHoSf2cxnDsJIzW4aP/gQ7h0TkOaEdNrOrJzDiukX2lZW1Nc1ysfbUa0II9ILo8hnH90MoiOE1GQV9WgwcflAHCg8Y1Tc1EQuEh2sdywg20mcpMp03bRg1zu9iGNJJfboWmLp5cmOO6XtKzPwIDAQAB";
-
 
 const decimal = 1000000000000000000;
 
@@ -86,40 +80,36 @@ const convertToCoin = (coinSHOD) => {
 
 async function paymentSuccess(orderPending) {
   const { SUCCESS } = PROCESS_STATUS;
-  const { id, user, amount, value } = orderPending;
+  const { id, user, amount, value, emailorphone } = orderPending;
 
   try {
-    const {
-      accessKey,
-      signature,
-      status: signatureStatus,
-    } = await sinagtureVoucher({
-      orderCode: id,
-      amount: convertToCoin(amount / decimal),
-      value,
-      expiredDate: moment(new Date()).add(1, "years").format("DD/MM/YYYY"),
-      phoneOrEmail: orderPending.emailorphone,
-    });
+    const time = moment(new Date()).add(1, "years").format("DD/MM/YYYY");
+    const stringConnect = `${privateKeyVoucher}$OrderCode=${id}&Amount=${convertToCoin(
+      amount / decimal
+    )}&Value=${value}&ExpiredDate=${time}&PhoneOrEmail=${emailorphone}`;
 
-    if (signatureStatus) {
-      const { status, data } = await createVoucher({
-        data: {
-          orderCode: id,
-          amount: convertToCoin(amount / decimal),
-          value,
-          expiredDate: moment(new Date()).add(1, "years").format("DD/MM/YYYY"),
-          phoneOrEmail: orderPending.emailorphone,
-        },
-        publicKey: publicKeyVoucher,
-        accessKey,
-        signature,
-      });
-      if (status) {
-        await ordersModel.findOneAndUpdate({ id }, { status: SUCCESS });
-        return { data: data.data, status: true };
-      } else {
-        return { data: data.data, status: false };
-      }
+    const signature = SHA256(
+      MD5(MD5(stringConnect).toString().toLocaleUpperCase())
+        .toString()
+        .toLocaleUpperCase()
+    ).toString();
+
+    const { status, data } = await createVoucher({
+      data: {
+        orderCode: id,
+        amount: convertToCoin(amount / decimal),
+        value,
+        expiredDate: time,
+        phoneOrEmail: emailorphone,
+      },
+      publicKey: publicKeyVoucher,
+      signature,
+    });
+    if (status) {
+      await ordersModel.findOneAndUpdate({ id }, { status: SUCCESS });
+      return { data: data.data, status: true };
+    } else {
+      return { data: data.data, status: false };
     }
   } catch (err) {
     console.error(err);
@@ -224,25 +214,3 @@ mongoose
 server.listen(port, function () {
   console.log("Server arealdy started", port);
 });
-
-const sinagtureVoucher = async ({
-  orderCode,
-  amount,
-  value,
-  expiredDate,
-  phoneOrEmail,
-}) => {
-  const params = {
-    data: {
-      orderCode: orderCode.toString(),
-      amount,
-      value,
-      expiredDate,
-      phoneOrEmail,
-    },
-    publicKey: publicKeyVoucher,
-  };
-  const { data, status } = await axios.post(API_URL_SIGNATURE, params);
-  return { ...data.data, status };
-};
-
