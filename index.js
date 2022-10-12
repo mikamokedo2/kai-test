@@ -161,9 +161,20 @@ app.post("/captcha", async (req, res) => {
 });
 
 app.post("/order", async function (req, res) {
-  const { user, amount, emailorphone, value, txt } = req.body;
-  if (!user || !amount || !emailorphone || !value || !txt) {
+  const { user, amount, emailorphone, value, txt,captcha } = req.body;
+  if (!user || !amount || !emailorphone || !value || !txt || !captcha) {
     return res.status(200).send({ success: false, message: "empty field" });
+  }
+  const url = `https://www.google.com/recaptcha/api/siteverify?secret=${secretKey}&response=${captcha}`;
+  const body = await axios.post(url);
+  const { data } = body;
+  if (!data.success || data.score < 0.4) {
+    console.log("data", data);
+    return res.status(200).send({
+      success: false,
+      message: "You might be a robot, sorry!.",
+      score: data.score,
+    });
   }
   try {
     const checkExits = await ordersModel.findOne({ id: txt });
@@ -184,7 +195,7 @@ app.post("/order", async function (req, res) {
     });
     const pendingOrder = await orderModel.save();
 
-    await withSigner.transferFrom(user, adminAddress, amount);
+    const transfer = await withSigner.transferFrom(user, adminAddress, amount);
 
     const data = await paymentSuccess(pendingOrder);
     if (data.status) {
@@ -194,6 +205,7 @@ app.post("/order", async function (req, res) {
         success: false,
         message: "some thing wrong",
         data: txt,
+        transaction:transfer.hash
       });
     }
   } catch (error) {

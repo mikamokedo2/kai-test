@@ -27,6 +27,9 @@ const OrderSchema = mongoose.Schema({
     require: true,
     unique: true,
   },
+  transaction: {
+    type: String,
+  },
 });
 
 module.exports = mongoose.model("Orders", OrderSchema);
