@@ -1,11 +1,6 @@
 const mongoose = require("mongoose");
 
 const OrderSchema = mongoose.Schema({
-  id: {
-    type: Number,
-    require: true,
-    unique: true,
-  },
   user: {
     type: String,
     require: true,
@@ -26,6 +21,11 @@ const OrderSchema = mongoose.Schema({
   value: {
     type: Number,
     require: true,
+  },
+  id: {
+    type: String,
+    require: true,
+    unique: true,
   },
 });
 

@@ -1,13 +1,13 @@
-const Web3 = require("web3");
 const express = require("express");
 const cors = require("cors");
 const bodyParser = require("body-parser");
 const mongoose = require("mongoose");
-const cron = require("node-cron");
 const axios = require("axios");
 const moment = require("moment");
+const { ethers, Wallet } = require("ethers");
 
-const ordersModel = require("./orders.model");
+const ordersModel = require("./models/orders.model");
+const supporstModel = require("./models/support.model");
 
 const {
   contract: { address, abi },
@@ -17,23 +17,23 @@ const app = express();
 
 const http = require("http");
 const server = http.createServer(app);
-const { Server } = require("socket.io");
-const io = new Server(server, {
-  cors: {
-    origin: "*",
-  },
-});
+
+const adminAddress =
+  process.env.ADMIN_WALLET_ADDRESS ||
+  "0xd98027bC602C0fa9dA299216D80E04A2dD34a04e";
+
+const rateConvert = process.env.RATE_CONVERT || 1;
 
 const privateKey =
   process.env.PRIVATE_KEY ||
-  "ca78ea20c9390cc35bbe249fe721dcc408f4e72961039e6cb092476e5024c27f";
+  "8f19eccf4479b464443296ec5dded6a5bf04e92a570a97858fc4e66b2019502e";
 
 const provider =
   process.env.PROVIDER || "https://data-seed-prebsc-1-s1.binance.org:8545/";
 
 const connectionString =
   process.env.CONNECTION_STRING ||
-  "mongodb+srv://shopdi_bc_test:uABMM3Bywbc1WdM9@shopditestbc.40ennkd.mongodb.net/?retryWrites=true&w=majority";
+  "mongodb+srv://shopdi_bc_test:owoX67cnbx4uCe0q@shopditestbc.40ennkd.mongodb.net/?retryWrites=true&w=majority";
 
 const PROCESS_STATUS = {
   PENDING: "PENDING",
@@ -59,8 +59,6 @@ const publicKeyVoucher =
   process.env.PUBLICKEY_KEY_VOUCHER ||
   "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCEo7kAV5LiC2ad/5WY0ooxLey2LSHoSf2cxnDsJIzW4aP/gQ7h0TkOaEdNrOrJzDiukX2lZW1Nc1ysfbUa0II9ILo8hnH90MoiOE1GQV9WgwcflAHCg8Y1Tc1EQuEh2sdywg20mcpMp03bRg1zu9iGNJJfboWmLp5cmOO6XtKzPwIDAQAB";
 
-let web3 = new Web3(provider);
-let myContract = new web3.eth.Contract(abi, address);
 
 const decimal = 1000000000000000000;
 
@@ -68,10 +66,12 @@ app.use(cors({ origin: "*" }));
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: false }));
 
-async function getOrdersPendingStatus() {
-  const { PENDING } = PROCESS_STATUS;
-  return await ordersModel.find({ status: PENDING });
-}
+const providerEther = new ethers.providers.JsonRpcProvider(provider);
+
+const signer = new Wallet(privateKey);
+const wallet = signer.connect(providerEther);
+const shopdiContract = new ethers.Contract(address, abi, providerEther);
+const withSigner = shopdiContract.connect(wallet);
 
 async function createVoucher(params) {
   // console.log(params, API_URL_VOUCHER);
@@ -94,7 +94,7 @@ async function paymentSuccess(orderPending) {
       signature,
       status: signatureStatus,
     } = await sinagtureVoucher({
-      orderCode: id.toString(),
+      orderCode: id,
       amount: convertToCoin(amount / decimal),
       value,
       expiredDate: moment(new Date()).add(1, "years").format("DD/MM/YYYY"),
@@ -104,7 +104,7 @@ async function paymentSuccess(orderPending) {
     if (signatureStatus) {
       const { status, data } = await createVoucher({
         data: {
-          orderCode: id.toString(),
+          orderCode: id,
           amount: convertToCoin(amount / decimal),
           value,
           expiredDate: moment(new Date()).add(1, "years").format("DD/MM/YYYY"),
@@ -116,7 +116,9 @@ async function paymentSuccess(orderPending) {
       });
       if (status) {
         await ordersModel.findOneAndUpdate({ id }, { status: SUCCESS });
-        io.sockets.emit("payment-success", { ...data, id, user });
+        return { data: data.data, status: true };
+      } else {
+        return { data: data.data, status: false };
       }
     }
   } catch (err) {
@@ -124,24 +126,26 @@ async function paymentSuccess(orderPending) {
   }
 }
 
-// tạo kết nối giữa client và server
-io.on("connection", function (socket) {
-  // console.log("connected", socket.id);
+app.get("/adminWalletAddress", async (req, res) => {
+  return res
+    .status(200)
+    .send({ success: true, data: { wallet: adminAddress, rate: rateConvert } });
 });
 
-cron.schedule("*/20 * * * * *", async () => {
-  const ordersPending = await getOrdersPendingStatus();
-  // console.log(ordersPending);
-  if (ordersPending && ordersPending.length) {
-    for (const orderPending of ordersPending) {
-      const { id } = orderPending;
-      const success = await myContract.methods.ids(id).call();
-      console.log("success trasaction", success);
-      if (success) {
-        await paymentSuccess(orderPending);
-      }
-    }
+app.post("/contact", async (req, res) => {
+  const { phone, email, address, description } = req.body;
+  if (!phone || !email || !address || !description) {
+    return res.status(200).send({ success: false, message: "empty field" });
   }
+  const model = new supporstModel({
+    phone,
+    email,
+    address,
+    description,
+    status: PROCESS_STATUS.PENDING,
+  });
+  const result = await model.save();
+  return res.status(200).send({ success: true, data: result });
 });
 
 app.post("/captcha", async (req, res) => {
@@ -156,7 +160,7 @@ app.post("/captcha", async (req, res) => {
   const { data } = body;
 
   if (!data.success || data.score < 0.4) {
-    console.log('data', data)
+    console.log("data", data);
     return res.status(200).send({
       success: false,
       message: "You might be a robot, sorry!.",
@@ -167,25 +171,49 @@ app.post("/captcha", async (req, res) => {
 });
 
 app.post("/order", async function (req, res) {
-  const { user, amount, emailorphone, value } = req.body;
-  const id = Number(moment(new Date()).format("YYYYMMDDHHMMss"));
+  const { user, amount, emailorphone, value, txt } = req.body;
+  if (!user || !amount || !emailorphone || !value || !txt) {
+    return res.status(200).send({ success: false, message: "empty field" });
+  }
+  try {
+    const checkExits = await ordersModel.findOne({ id: txt });
+    if (checkExits) {
+      return res.status(200).send({
+        success: false,
+        message: "order has been created",
+        data: txt,
+      });
+    }
+    const orderModel = new ordersModel({
+      user,
+      amount,
+      value,
+      status: PROCESS_STATUS.PENDING,
+      emailorphone,
+      id: txt,
+    });
+    const pendingOrder = await orderModel.save();
 
-  const orderModel = new ordersModel({
-    id,
-    user,
-    amount,
-    value,
-    status: PROCESS_STATUS.PENDING,
-    emailorphone,
-  });
+    await withSigner.transferFrom(user, adminAddress, amount);
 
-  await orderModel.save();
-
-  const messageHash = await myContract.methods
-    .getMessageHash(user, id, amount.toString())
-    .call();
-  const signature = await web3.eth.accounts.sign(messageHash, privateKey);
-  res.status(200).send({ signature, data: { id, amount: amount.toString() } });
+    const data = await paymentSuccess(pendingOrder);
+    if (data.status) {
+      return res.status(200).send({ success: true, data: data?.data });
+    } else {
+      return res.status(200).send({
+        success: false,
+        message: "some thing wrong",
+        data: txt,
+      });
+    }
+  } catch (error) {
+    console.log(error);
+    return res.status(200).send({
+      success: false,
+      message: "some thing wrong",
+      data: txt,
+    });
+  }
 });
 
 mongoose
@@ -218,62 +246,3 @@ const sinagtureVoucher = async ({
   return { ...data.data, status };
 };
 
-(async () => {
-  // const addressERC20 = await myContract.methods.buyToken().call();
-  // const signature = await web3.eth.accounts.sign(
-  //   {
-  //     id: 1,
-  //     user: "0x7a3876445a53bdb7b2bac8773badc23e19cd4387",
-  //     amount: 500,
-  //   },
-  //   privateKey
-  // );
-  // const { message, v, r, s } = signature;
-  // const orderModel = new ordersModel({
-  //   id: moment(new Date()).format("YYYYMMDDHHmmss"),
-  //   user: "0x17cbC2E8A7AdC36e911D560CDcf1577033374A9e",
-  //   amount: 100,
-  //   value: 50,
-  //   status: PROCESS_STATUS.PENDING,
-  //   emailorphone: "nguyenvana@gmail.com",
-  // });
-  // const result = await orderModel.save();
-  // const result = await myContract.methods
-  //   .buy()
-  //   .send({ from: "0x17cbC2E8A7AdC36e911D560CDcf1577033374A9e" });
-  // console.log(result);
-  // const result = await createVoucher(20220923004509);
-  // console.log(result);
-  // console.log(addressERC20, signature);
-  // const string = [];
-  // const messageHash = await myContract.methods
-  //   .getMessageHash("0x7a3876445a53bdb7b2bac8773badc23e19cd4387", 1, 500)
-  //   .call();
-  // console.log(messageHash);
-  // const signature = await web3.eth.accounts.sign(messageHash, privateKey);
-  // const success = await myContract.methods
-  //   .permit(
-  //     "0x7a3876445a53bdb7b2bac8773badc23e19cd4387",
-  //     1,
-  //     500,
-  //     signature.v,
-  //     signature.r,
-  //     signature.s
-  //   )
-  //   .call();
-  // console.log(success);
-  // const success = await myContract.methods.ids(1).call();
-  // var hmac = crypto.createHmac('sha256', 'yoursecretkeyhere');
-  // const signature = await sinagtureVoucher({
-  //   data: {
-  //     orderCode: 20220927180920,
-  //     amount: 2,
-  //     value: 1000000,
-  //     expiredDate: "27/09/2022",
-  //     phoneOrEmail: "daucanh2@gmail.com",
-  //   },
-  //   publicKey:
-  //     "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCEo7kAV5LiC2ad/5WY0ooxLey2LSHoSf2cxnDsJIzW4aP/gQ7h0TkOaEdNrOrJzDiukX2lZW1Nc1ysfbUa0II9ILo8hnH90MoiOE1GQV9WgwcflAHCg8Y1Tc1EQuEh2sdywg20mcpMp03bRg1zu9iGNJJfboWmLp5cmOO6XtKzPwIDAQAB",
-  // });
-  // console.log(signature);
-})();
