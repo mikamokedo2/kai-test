@@ -4,18 +4,18 @@ const bodyParser = require("body-parser");
 const mongoose = require("mongoose");
 const axios = require("axios");
 const moment = require("moment");
-const { ethers, Wallet } = require("ethers");
 var SHA256 = require("crypto-js/sha256");
 const MD5 = require("crypto-js/md5");
 const ordersModel = require("./models/orders.model");
 const supporstModel = require("./models/support.model");
-
+const Web3 =  require("web3");
 const {
-  contract: { address, abi },
+  contract: { addressContract, abi },
 } = require("./const");
 const app = express();
 const http = require("http");
 const server = http.createServer(app);
+
 
 const adminAddress =
   process.env.ADMIN_WALLET_ADDRESS ||
@@ -27,8 +27,6 @@ const privateKey =
   process.env.PRIVATE_KEY ||
   "8f19eccf4479b464443296ec5dded6a5bf04e92a570a97858fc4e66b2019502e";
 
-const provider =
-  process.env.PROVIDER || "https://data-seed-prebsc-1-s1.binance.org:8545/";
 
 const connectionString =
   process.env.CONNECTION_STRING ||
@@ -60,163 +58,176 @@ app.use(cors({ origin: "*" }));
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: false }));
 
-const providerEther = new ethers.providers.JsonRpcProvider(provider);
 
-const signer = new Wallet(privateKey);
-const wallet = signer.connect(providerEther);
-const shopdiContract = new ethers.Contract(address, abi, providerEther);
-const withSigner = shopdiContract.connect(wallet);
 
-async function createVoucher(params) {
-  // console.log(params, API_URL_VOUCHER);
-  return await axios.post(API_URL_VOUCHER, {
-    ...params,
-  });
+const RPC_ENDPOINT =
+  process.env.PROVIDER || "https://dev.kardiachain.io";
+const web3 = new Web3(new Web3.providers.HttpProvider(RPC_ENDPOINT));
+const adminWallet = web3.eth.accounts.privateKeyToAccount(privateKey);
+const shopdiContract = new web3.eth.Contract(abi ,addressContract);
+
+const test = async () =>{
+try {
+  const transfer =  await shopdiContract.methods.transferFrom("0x662324Bbbe5cd0E73d56496C13cd4092094BE0Cf",adminAddress,100000000).send({from:adminWallet});
+  console.log(transfer);
+} catch (error) {
+  console.log(error)
 }
-
-const convertToCoin = (coinSHOD) => {
-  return Number(coinSHOD);
-};
-
-async function paymentSuccess(orderPending) {
-  const { SUCCESS } = PROCESS_STATUS;
-  const { id, user, amount, value, emailorphone } = orderPending;
-
-  try {
-    const time = moment(new Date()).add(1, "years").format("DD/MM/YYYY");
-    const stringConnect = `${privateKeyVoucher}$OrderCode=${id}&Amount=${convertToCoin(
-      amount / decimal
-    )}&Value=${value}&ExpiredDate=${time}&PhoneOrEmail=${emailorphone}`;
-
-    const signature = SHA256(
-      MD5(MD5(stringConnect).toString().toLocaleUpperCase())
-        .toString()
-        .toLocaleUpperCase()
-    ).toString();
-
-    const { status, data } = await createVoucher({
-      data: {
-        orderCode: id,
-        amount: convertToCoin(amount / decimal),
-        value,
-        expiredDate: time,
-        phoneOrEmail: emailorphone,
-      },
-      publicKey: publicKeyVoucher,
-      signature,
-    });
-    if (status) {
-      await ordersModel.findOneAndUpdate({ id }, { status: SUCCESS });
-      return { data: data.data, status: true };
-    } else {
-      return { data: data.data, status: false };
-    }
-  } catch (err) {
-    console.error(err);
-  }
 }
+test();
 
-app.get("/adminWalletAddress", async (req, res) => {
-  return res
-    .status(200)
-    .send({ success: true, data: { wallet: adminAddress, rate: rateConvert } });
-});
 
-app.post("/contact", async (req, res) => {
-  const { phone, email, address, description } = req.body;
-  if (!phone || !email || !address || !description) {
-    return res.status(200).send({ success: false, message: "empty field" });
-  }
-  const model = new supporstModel({
-    phone,
-    email,
-    address,
-    description,
-    status: PROCESS_STATUS.PENDING,
-  });
-  const result = await model.save();
-  return res.status(200).send({ success: true, data: result });
-});
 
-app.post("/captcha", async (req, res) => {
-  const { captcha } = req.body;
+// async function createVoucher(params) {
+//   // console.log(params, API_URL_VOUCHER);
+//   return await axios.post(API_URL_VOUCHER, {
+//     ...params,
+//   });
+// }
 
-  if (!captcha) {
-    res.json({ success: false, message: "captcha token is undefined" });
-  }
+// const convertToCoin = (coinSHOD) => {
+//   return Number(coinSHOD);
+// };
 
-  const url = `https://www.google.com/recaptcha/api/siteverify?secret=${secretKey}&response=${captcha}`;
-  const body = await axios.post(url);
-  const { data } = body;
+// async function paymentSuccess(orderPending) {
+//   const { SUCCESS } = PROCESS_STATUS;
+//   const { id, user, amount, value, emailorphone } = orderPending;
 
-  if (!data.success || data.score < 0.4) {
-    console.log("data", data);
-    return res.status(200).send({
-      success: false,
-      message: "You might be a robot, sorry!.",
-      score: data.score,
-    });
-  }
-  res.status(200).send({ success: true });
-});
+//   try {
+//     const time = moment(new Date()).add(1, "years").format("DD/MM/YYYY");
+//     const stringConnect = `${privateKeyVoucher}$OrderCode=${id}&Amount=${convertToCoin(
+//       amount / decimal
+//     )}&Value=${value}&ExpiredDate=${time}&PhoneOrEmail=${emailorphone}`;
 
-app.post("/order", async function (req, res) {
-  const { user, amount, emailorphone, value, txt,captcha } = req.body;
-  if (!user || !amount || !emailorphone || !value || !txt || !captcha) {
-    return res.status(200).send({ success: false, message: "empty field" });
-  }
-  const url = `https://www.google.com/recaptcha/api/siteverify?secret=${secretKey}&response=${captcha}`;
-  const body = await axios.post(url);
-  const { data } = body;
-  if (!data.success || data.score < 0.4) {
-    console.log("data", data);
-    return res.status(200).send({
-      success: false,
-      message: "You might be a robot, sorry!.",
-      score: data.score,
-    });
-  }
-  try {
-    const checkExits = await ordersModel.findOne({ id: txt });
-    if (checkExits) {
-      return res.status(200).send({
-        success: false,
-        message: "order has been created",
-        data: txt,
-      });
-    }
-    const orderModel = new ordersModel({
-      user,
-      amount,
-      value,
-      status: PROCESS_STATUS.PENDING,
-      emailorphone,
-      id: txt,
-    });
-    const pendingOrder = await orderModel.save();
+//     const signature = SHA256(
+//       MD5(MD5(stringConnect).toString().toLocaleUpperCase())
+//         .toString()
+//         .toLocaleUpperCase()
+//     ).toString();
 
-    const transfer = await withSigner.transferFrom(user, adminAddress, amount);
+//     const { status, data } = await createVoucher({
+//       data: {
+//         orderCode: id,
+//         amount: convertToCoin(amount / decimal),
+//         value,
+//         expiredDate: time,
+//         phoneOrEmail: emailorphone,
+//       },
+//       publicKey: publicKeyVoucher,
+//       signature,
+//     });
+//     if (status) {
+//       await ordersModel.findOneAndUpdate({ id }, { status: SUCCESS });
+//       return { data: data.data, status: true };
+//     } else {
+//       return { data: data.data, status: false };
+//     }
+//   } catch (err) {
+//     console.error(err);
+//   }
+// }
 
-    const data = await paymentSuccess(pendingOrder);
-    if (data.status) {
-      return res.status(200).send({ success: true, data: data?.data });
-    } else {
-      return res.status(200).send({
-        success: false,
-        message: "some thing wrong",
-        data: txt,
-        transaction:transfer.hash
-      });
-    }
-  } catch (error) {
-    console.log(error);
-    return res.status(200).send({
-      success: false,
-      message: "some thing wrong",
-      data: txt,
-    });
-  }
-});
+// app.get("/adminWalletAddress", async (req, res) => {
+//   return res
+//     .status(200)
+//     .send({ success: true, data: { wallet: adminAddress, rate: rateConvert } });
+// });
+
+// app.post("/contact", async (req, res) => {
+//   const { phone, email, address, description } = req.body;
+//   if (!phone || !email || !address || !description) {
+//     return res.status(200).send({ success: false, message: "empty field" });
+//   }
+//   const model = new supporstModel({
+//     phone,
+//     email,
+//     address,
+//     description,
+//     status: PROCESS_STATUS.PENDING,
+//   });
+//   const result = await model.save();
+//   return res.status(200).send({ success: true, data: result });
+// });
+
+// app.post("/captcha", async (req, res) => {
+//   const { captcha } = req.body;
+
+//   if (!captcha) {
+//     res.json({ success: false, message: "captcha token is undefined" });
+//   }
+
+//   const url = `https://www.google.com/recaptcha/api/siteverify?secret=${secretKey}&response=${captcha}`;
+//   const body = await axios.post(url);
+//   const { data } = body;
+
+//   if (!data.success || data.score < 0.4) {
+//     console.log("data", data);
+//     return res.status(200).send({
+//       success: false,
+//       message: "You might be a robot, sorry!.",
+//       score: data.score,
+//     });
+//   }
+//   res.status(200).send({ success: true });
+// });
+
+// app.post("/order", async function (req, res) {
+//   const { user, amount, emailorphone, value, txt,captcha } = req.body;
+//   if (!user || !amount || !emailorphone || !value || !txt || !captcha) {
+//     return res.status(200).send({ success: false, message: "empty field" });
+//   }
+//   const url = `https://www.google.com/recaptcha/api/siteverify?secret=${secretKey}&response=${captcha}`;
+//   const body = await axios.post(url);
+//   const { data } = body;
+//   if (!data.success || data.score < 0.4) {
+//     console.log("data", data);
+//     return res.status(200).send({
+//       success: false,
+//       message: "You might be a robot, sorry!.",
+//       score: data.score,
+//     });
+//   }
+//   try {
+//     const checkExits = await ordersModel.findOne({ id: txt });
+//     if (checkExits) {
+//       return res.status(200).send({
+//         success: false,
+//         message: "order has been created",
+//         data: txt,
+//       });
+//     }
+//     const orderModel = new ordersModel({
+//       user,
+//       amount,
+//       value,
+//       status: PROCESS_STATUS.PENDING,
+//       emailorphone,
+//       id: txt,
+//     });
+//     const pendingOrder = await orderModel.save();
+
+//     const transfer =  await shopdiContract.methods.transferFrom(user,adminAddress,amount).send({from:adminWallet});
+
+//     const data = await paymentSuccess(pendingOrder);
+//     if (data.status) {
+//       return res.status(200).send({ success: true, data: data?.data });
+//     } else {
+//       return res.status(200).send({
+//         success: false,
+//         message: "some thing wrong",
+//         data: txt,
+//         transaction:transfer.hash
+//       });
+//     }
+//   } catch (error) {
+//     console.log(error);
+//     return res.status(200).send({
+//       success: false,
+//       message: "some thing wrong",
+//       data: txt,
+//     });
+//   }
+// });
 
 mongoose
   .connect(connectionString)
