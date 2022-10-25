@@ -30,6 +30,9 @@ const OrderSchema = mongoose.Schema({
   transaction: {
     type: String,
   },
+  netWork: {
+    type: String,
+  },
 });
 
 module.exports = mongoose.model("Orders", OrderSchema);

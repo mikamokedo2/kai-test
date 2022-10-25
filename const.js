@@ -1,6 +1,8 @@
 module.exports = {
   contract: {
-    addressContract: "0x7a3876445A53bdb7B2BAC8773BADc23E19cd4387",
+    kaiAddressContract: "0xA6D662dDB759F2A3C4240bca2e1cc86D383F9E71",
+  bscAddressContract: "0x7a3876445A53bdb7B2BAC8773BADc23E19cd4387",
+    
     abi: [
       {
         type: "constructor",
