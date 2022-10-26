@@ -241,7 +241,6 @@ app.post("/order", async function (req, res) {
       });
     }
   } catch (error) {
-    console.log(error);
     return res.status(200).send({
       success: false,
       message: "some thing wrong",
